@@ -23,8 +23,10 @@ jobs:
           distribution: temurin
           java-version: 8
 
-      - name: Make Gradle executable
-        run: chmod +x ./gradlew
+      - name: Set up Gradle 6.8.3
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 6.8.3
 
       - name: Build Forge 1.16.5 module
-        run: ./gradlew -p forge-1.16.5 build
+        run: gradle -p forge-1.16.5 build --stacktrace
