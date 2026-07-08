@@ -1,0 +1,12 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'compass-to-map-forge-1.16.5'
