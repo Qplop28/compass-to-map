@@ -24,12 +24,12 @@ public class CompassWatcher {
         ServerPlayerEntity player = (ServerPlayerEntity) event.player;
 
         // Once per second instead of every tick.
-        if (player.tickCount % 20 != 0) {
+        if (player.ticksExisted % 20 != 0) {
             return;
         }
 
-        checkStack(player, player.getMainHandItem());
-        checkStack(player, player.getOffhandItem());
+        checkStack(player, player.getHeldItemMainhand());
+        checkStack(player, player.getHeldItemOffhand());
     }
 
     private void checkStack(ServerPlayerEntity player, ItemStack stack) {
@@ -58,7 +58,7 @@ public class CompassWatcher {
 
         player.sendMessage(
                 new StringTextComponent("Compass to Map found Explorer's Compass NBT. Check latest.log."),
-                player.getUUID()
+                player.getUniqueID()
         );
     }
 }
