@@ -27,6 +27,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 6.8.3
+          cache-disabled: true
+
+      - name: Clear ForgeGradle cache
+        run: |
+          rm -rf ~/.gradle/caches/forge_gradle
+          rm -rf forge-1.16.5/.gradle
 
       - name: Build Forge 1.16.5 module
-        run: gradle -p forge-1.16.5 build --stacktrace
+        run: gradle -p forge-1.16.5 build --refresh-dependencies --no-daemon --stacktrace
