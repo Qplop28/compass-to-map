@@ -10,11 +10,13 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class CompassWatcher {
-    private static final Set<String> SEEN_RESULTS = new HashSet<>();
+    private static final Map<String, String> ACTIVE_RESULTS = new HashMap<>();
     private static final Set<String> LOGGED_SKIPPED_RESULTS = new HashSet<>();
 
     private static final String EXPLORERS_COMPASS_ID = "explorerscompass:explorerscompass";
@@ -63,11 +65,11 @@ public class CompassWatcher {
             return;
         }
 
-        checkStack(player, player.getHeldItemMainhand());
-        checkStack(player, player.getHeldItemOffhand());
+        checkStack(player, player.getHeldItemMainhand(), "main_hand");
+        checkStack(player, player.getHeldItemOffhand(), "off_hand");
     }
 
-    private void checkStack(ServerPlayerEntity player, ItemStack stack) {
+    private void checkStack(ServerPlayerEntity player, ItemStack stack, String slotName) {
         if (stack.isEmpty()) {
             return;
         }
@@ -85,28 +87,31 @@ public class CompassWatcher {
 
         CompoundNBT tag = stack.getTag();
         if (tag == null) {
+            clearActiveResult(player, idString, slotName);
             return;
         }
 
         if (idString.equals(EXPLORERS_COMPASS_ID)) {
-            handleExplorersCompass(player, tag);
+            handleExplorersCompass(player, tag, slotName);
             return;
         }
 
         if (idString.equals(NATURES_COMPASS_ID)) {
-            handleNaturesCompass(player, tag);
+            handleNaturesCompass(player, tag, slotName);
         }
     }
 
-    private void handleExplorersCompass(ServerPlayerEntity player, CompoundNBT tag) {
-        if (!tag.contains("FoundX") || !tag.contains("FoundZ") || !tag.contains("StructureKey")) {
+    private void handleExplorersCompass(ServerPlayerEntity player, CompoundNBT tag, String slotName) {
+        int state = tag.getInt("State");
+
+        // If the compass is not currently holding a completed result, allow the next result to create a waypoint.
+        if (state != 2) {
+            clearActiveResult(player, EXPLORERS_COMPASS_ID, slotName);
             return;
         }
 
-        int state = tag.getInt("State");
-
-        // Explorer's Compass uses State:2 when a result has been found.
-        if (state != 2) {
+        if (!tag.contains("FoundX") || !tag.contains("FoundZ") || !tag.contains("StructureKey")) {
+            clearActiveResult(player, EXPLORERS_COMPASS_ID, slotName);
             return;
         }
 
@@ -126,6 +131,8 @@ public class CompassWatcher {
 
         createJourneyMapWaypoint(
                 player,
+                EXPLORERS_COMPASS_ID,
+                slotName,
                 "Explorer's Compass",
                 structureKey,
                 prettyName,
@@ -136,15 +143,17 @@ public class CompassWatcher {
         );
     }
 
-    private void handleNaturesCompass(ServerPlayerEntity player, CompoundNBT tag) {
-        if (!tag.contains("FoundX") || !tag.contains("FoundZ")) {
+    private void handleNaturesCompass(ServerPlayerEntity player, CompoundNBT tag, String slotName) {
+        int state = tag.getInt("State");
+
+        // If the compass is not currently holding a completed result, allow the next result to create a waypoint.
+        if (state != 2) {
+            clearActiveResult(player, NATURES_COMPASS_ID, slotName);
             return;
         }
 
-        int state = tag.getInt("State");
-
-        // Nature's Compass uses State:2 when a result has been found.
-        if (state != 2) {
+        if (!tag.contains("FoundX") || !tag.contains("FoundZ")) {
+            clearActiveResult(player, NATURES_COMPASS_ID, slotName);
             return;
         }
 
@@ -170,6 +179,8 @@ public class CompassWatcher {
 
         createJourneyMapWaypoint(
                 player,
+                NATURES_COMPASS_ID,
+                slotName,
                 "Nature's Compass",
                 biomeKey,
                 prettyName,
@@ -182,6 +193,8 @@ public class CompassWatcher {
 
     private void createJourneyMapWaypoint(
             ServerPlayerEntity player,
+            String compassId,
+            String slotName,
             String source,
             String targetKey,
             String name,
@@ -194,16 +207,32 @@ public class CompassWatcher {
         String playerName = player.getScoreboardName();
         String dimension = player.world.getDimensionKey().getLocation().toString();
 
-        String resultKey = player.getUniqueID()
-                + "|" + source
+        String activeKey = player.getUniqueID()
+                + "|" + compassId
+                + "|" + slotName;
+
+        String resultKey = source
                 + "|" + dimension
                 + "|" + targetKey
                 + "|" + x
                 + "|" + z;
 
-        if (!SEEN_RESULTS.add(resultKey)) {
+        String previousResult = ACTIVE_RESULTS.get(activeKey);
+
+        if (resultKey.equals(previousResult)) {
+            CompassToMap.LOGGER.info(
+                    "Skipping already-active compass result: source={}, target={}, x={}, y={}, z={}, dimension={}",
+                    source,
+                    targetKey,
+                    x,
+                    y,
+                    z,
+                    dimension
+            );
             return;
         }
+
+        ACTIVE_RESULTS.put(activeKey, resultKey);
 
         /*
          * JourneyMap 1.16.5 scales Nether command coordinates by 1/8.
@@ -254,6 +283,14 @@ public class CompassWatcher {
                     player.getUniqueID()
             );
         }
+    }
+
+    private void clearActiveResult(ServerPlayerEntity player, String compassId, String slotName) {
+        String activeKey = player.getUniqueID()
+                + "|" + compassId
+                + "|" + slotName;
+
+        ACTIVE_RESULTS.remove(activeKey);
     }
 
     private boolean isStructureValidForDimension(String structureKey, String dimension) {
