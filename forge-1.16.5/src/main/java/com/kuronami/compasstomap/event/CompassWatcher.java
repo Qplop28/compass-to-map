@@ -89,12 +89,43 @@ public class CompassWatcher {
                 dimension
         );
 
-        String journeyMapLocation = "[name:\"" + prettyName + "\", x:" + x + ", y:" + y + ", z:" + z + "]";
+        createJourneyMapWaypoint(player, prettyName, dimension, x, y, z);
+    }
 
-        player.sendMessage(
-                new StringTextComponent("Compass to Map: " + journeyMapLocation),
-                player.getUniqueID()
-        );
+    private void createJourneyMapWaypoint(ServerPlayerEntity player, String name, String dimension, int x, int y, int z) {
+        String safeName = name.replace("\"", "'");
+        String playerName = player.getScoreboardName();
+
+        /*
+         * JourneyMap 1.16.5 exposes a server command as:
+         * /waypoint create "name" <dimension> <x> <y> <z> <color> <player> [announce]
+         *
+         * We run it without the slash because CommandManager expects the raw command text.
+         */
+        String command = "waypoint create \"" + safeName + "\" "
+                + dimension + " "
+                + x + " " + y + " " + z + " "
+                + "aqua "
+                + playerName + " "
+                + "false";
+
+        try {
+            CompassToMap.LOGGER.info("Creating JourneyMap waypoint with command: /{}", command);
+
+            player.getServer().getCommandManager().handleCommand(
+                    player.getCommandSource().withPermissionLevel(4).withFeedbackDisabled(),
+                    command
+            );
+        } catch (Exception exception) {
+            CompassToMap.LOGGER.error("Failed to create JourneyMap waypoint automatically. Falling back to clickable chat.", exception);
+
+            String journeyMapLocation = "[name:\"" + safeName + "\", x:" + x + ", y:" + y + ", z:" + z + "]";
+
+            player.sendMessage(
+                    new StringTextComponent("Compass to Map: " + journeyMapLocation),
+                    player.getUniqueID()
+            );
+        }
     }
 
     private String prettyStructureName(String structureKey) {
