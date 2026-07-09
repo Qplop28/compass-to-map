@@ -9,7 +9,11 @@ import net.minecraft.util.text.StringTextComponent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class CompassWatcher {
+    private static final Set<String> LOGGED_STACK_STATES = new HashSet<>();
 
     @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
@@ -28,11 +32,11 @@ public class CompassWatcher {
             return;
         }
 
-        checkStack(player, player.getHeldItemMainhand());
-        checkStack(player, player.getHeldItemOffhand());
+        checkStack(player, player.getHeldItemMainhand(), "main_hand");
+        checkStack(player, player.getHeldItemOffhand(), "off_hand");
     }
 
-    private void checkStack(ServerPlayerEntity player, ItemStack stack) {
+    private void checkStack(ServerPlayerEntity player, ItemStack stack, String slotName) {
         if (stack.isEmpty()) {
             return;
         }
@@ -42,14 +46,39 @@ public class CompassWatcher {
             return;
         }
 
-        // This may need changing after we verify the exact 1.16.5 Explorer's Compass item ID.
-        if (!itemId.toString().equals("explorerscompass:explorers_compass")) {
+        String idString = itemId.toString();
+        CompoundNBT tag = stack.getTag();
+        String tagString = tag == null ? "null" : tag.toString();
+
+        /*
+         * Debug phase:
+         * Log any compass-like held item once per unique state so we can find
+         * Explorer's Compass' exact registry id and saved tag keys.
+         */
+        if (idString.contains("compass")) {
+            String stateKey = player.getUniqueID() + "|" + slotName + "|" + idString + "|" + tagString;
+
+            if (LOGGED_STACK_STATES.add(stateKey)) {
+                CompassToMap.LOGGER.info(
+                        "Held compass-like item: slot={}, id={}, display={}, tag={}",
+                        slotName,
+                        idString,
+                        stack.getDisplayName().getString(),
+                        tagString
+                );
+            }
+        }
+
+        boolean isExplorersCompass =
+                idString.equals("explorerscompass:explorers_compass")
+                        || idString.equals("explorerscompass:explorerscompass");
+
+        if (!isExplorersCompass) {
             return;
         }
 
-        CompoundNBT tag = stack.getTag();
-
         if (tag == null) {
+            CompassToMap.LOGGER.info("Explorer's Compass detected, but it has no NBT tag yet.");
             return;
         }
 
