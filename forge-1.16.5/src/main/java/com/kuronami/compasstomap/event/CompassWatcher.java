@@ -13,7 +13,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class CompassWatcher {
-    private static final Set<String> LOGGED_STACK_STATES = new HashSet<>();
+    private static final Set<String> SEEN_RESULTS = new HashSet<>();
 
     @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
@@ -32,11 +32,11 @@ public class CompassWatcher {
             return;
         }
 
-        checkStack(player, player.getHeldItemMainhand(), "main_hand");
-        checkStack(player, player.getHeldItemOffhand(), "off_hand");
+        checkStack(player, player.getHeldItemMainhand());
+        checkStack(player, player.getHeldItemOffhand());
     }
 
-    private void checkStack(ServerPlayerEntity player, ItemStack stack, String slotName) {
+    private void checkStack(ServerPlayerEntity player, ItemStack stack) {
         if (stack.isEmpty()) {
             return;
         }
@@ -46,48 +46,84 @@ public class CompassWatcher {
             return;
         }
 
-        String idString = itemId.toString();
+        if (!itemId.toString().equals("explorerscompass:explorerscompass")) {
+            return;
+        }
+
         CompoundNBT tag = stack.getTag();
-        String tagString = tag == null ? "null" : tag.toString();
+        if (tag == null) {
+            return;
+        }
 
-        /*
-         * Debug phase:
-         * Log any compass-like held item once per unique state so we can find
-         * Explorer's Compass' exact registry id and saved tag keys.
-         */
-        if (idString.contains("compass")) {
-            String stateKey = player.getUniqueID() + "|" + slotName + "|" + idString + "|" + tagString;
+        if (!tag.contains("FoundX") || !tag.contains("FoundZ") || !tag.contains("StructureKey")) {
+            return;
+        }
 
-            if (LOGGED_STACK_STATES.add(stateKey)) {
-                CompassToMap.LOGGER.info(
-                        "Held compass-like item: slot={}, id={}, display={}, tag={}",
-                        slotName,
-                        idString,
-                        stack.getDisplayName().getString(),
-                        tagString
-                );
+        int state = tag.getInt("State");
+
+        // Explorer's Compass uses State:2 when a result has been found.
+        if (state != 2) {
+            return;
+        }
+
+        int x = tag.getInt("FoundX");
+        int z = tag.getInt("FoundZ");
+        int y = Math.max(64, player.getPosition().getY());
+
+        String structureKey = tag.getString("StructureKey");
+        String prettyName = prettyStructureName(structureKey);
+
+        String dimension = player.world.getDimensionKey().getLocation().toString();
+
+        String resultKey = player.getUniqueID() + "|" + dimension + "|" + structureKey + "|" + x + "|" + z;
+        if (!SEEN_RESULTS.add(resultKey)) {
+            return;
+        }
+
+        CompassToMap.LOGGER.info(
+                "Explorer's Compass found structure: structure={}, x={}, y={}, z={}, dimension={}",
+                structureKey,
+                x,
+                y,
+                z,
+                dimension
+        );
+
+        String journeyMapLocation = "[name:\"" + prettyName + "\", x:" + x + ", y:" + y + ", z:" + z + "]";
+
+        player.sendMessage(
+                new StringTextComponent("Compass to Map: " + journeyMapLocation),
+                player.getUniqueID()
+        );
+    }
+
+    private String prettyStructureName(String structureKey) {
+        String name = structureKey;
+
+        int colonIndex = name.indexOf(':');
+        if (colonIndex >= 0 && colonIndex + 1 < name.length()) {
+            name = name.substring(colonIndex + 1);
+        }
+
+        String[] parts = name.split("_");
+        StringBuilder builder = new StringBuilder();
+
+        for (String part : parts) {
+            if (part.isEmpty()) {
+                continue;
+            }
+
+            if (builder.length() > 0) {
+                builder.append(' ');
+            }
+
+            builder.append(Character.toUpperCase(part.charAt(0)));
+
+            if (part.length() > 1) {
+                builder.append(part.substring(1));
             }
         }
 
-        boolean isExplorersCompass =
-                idString.equals("explorerscompass:explorers_compass")
-                        || idString.equals("explorerscompass:explorerscompass");
-
-        if (!isExplorersCompass) {
-            return;
-        }
-
-        if (tag == null) {
-            CompassToMap.LOGGER.info("Explorer's Compass detected, but it has no NBT tag yet.");
-            return;
-        }
-
-        // First goal: print the compass NBT so we can discover the real coordinate keys.
-        CompassToMap.LOGGER.info("Explorer's Compass NBT: {}", tag);
-
-        player.sendMessage(
-                new StringTextComponent("Compass to Map found Explorer's Compass NBT. Check latest.log."),
-                player.getUniqueID()
-        );
+        return builder.length() == 0 ? structureKey : builder.toString();
     }
 }
