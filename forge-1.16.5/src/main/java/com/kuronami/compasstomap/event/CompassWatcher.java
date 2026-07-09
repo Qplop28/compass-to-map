@@ -14,6 +14,10 @@ import java.util.Set;
 
 public class CompassWatcher {
     private static final Set<String> SEEN_RESULTS = new HashSet<>();
+    private static final Set<String> LOGGED_UNKNOWN_TAGS = new HashSet<>();
+
+    private static final String EXPLORERS_COMPASS_ID = "explorerscompass:explorerscompass";
+    private static final String NATURES_COMPASS_ID = "naturescompass:naturescompass";
 
     @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
@@ -46,7 +50,9 @@ public class CompassWatcher {
             return;
         }
 
-        if (!itemId.toString().equals("explorerscompass:explorerscompass")) {
+        String idString = itemId.toString();
+
+        if (!idString.equals(EXPLORERS_COMPASS_ID) && !idString.equals(NATURES_COMPASS_ID)) {
             return;
         }
 
@@ -55,6 +61,17 @@ public class CompassWatcher {
             return;
         }
 
+        if (idString.equals(EXPLORERS_COMPASS_ID)) {
+            handleExplorersCompass(player, tag);
+            return;
+        }
+
+        if (idString.equals(NATURES_COMPASS_ID)) {
+            handleNaturesCompass(player, tag);
+        }
+    }
+
+    private void handleExplorersCompass(ServerPlayerEntity player, CompoundNBT tag) {
         if (!tag.contains("FoundX") || !tag.contains("FoundZ") || !tag.contains("StructureKey")) {
             return;
         }
@@ -71,41 +88,97 @@ public class CompassWatcher {
         int y = Math.max(64, player.getPosition().getY());
 
         String structureKey = tag.getString("StructureKey");
-        String prettyName = prettyStructureName(structureKey);
+        String prettyName = prettyNameFromKey(structureKey);
 
+        createJourneyMapWaypoint(
+                player,
+                "Explorer's Compass",
+                structureKey,
+                prettyName,
+                "aqua",
+                x,
+                y,
+                z
+        );
+    }
+
+    private void handleNaturesCompass(ServerPlayerEntity player, CompoundNBT tag) {
+        if (!tag.contains("FoundX") || !tag.contains("FoundZ")) {
+            return;
+        }
+
+        int state = tag.getInt("State");
+
+        // Nature's Compass should also use State:2 when a result has been found.
+        if (state != 2) {
+            return;
+        }
+
+        String biomeKey = getFirstStringTag(tag, "BiomeID", "BiomeKey", "Biome", "BiomeName");
+
+        if (biomeKey == null || biomeKey.isEmpty()) {
+            logUnknownCompassTagOnce(player, "Nature's Compass", tag);
+            return;
+        }
+
+        int x = tag.getInt("FoundX");
+        int z = tag.getInt("FoundZ");
+        int y = Math.max(64, player.getPosition().getY());
+
+        String prettyName = prettyNameFromKey(biomeKey);
+
+        createJourneyMapWaypoint(
+                player,
+                "Nature's Compass",
+                biomeKey,
+                prettyName,
+                "green",
+                x,
+                y,
+                z
+        );
+    }
+
+    private void createJourneyMapWaypoint(
+            ServerPlayerEntity player,
+            String source,
+            String targetKey,
+            String name,
+            String color,
+            int x,
+            int y,
+            int z
+    ) {
+        String safeName = name.replace("\"", "'");
+        String playerName = player.getScoreboardName();
         String dimension = player.world.getDimensionKey().getLocation().toString();
 
-        String resultKey = player.getUniqueID() + "|" + dimension + "|" + structureKey + "|" + x + "|" + z;
+        String resultKey = player.getUniqueID()
+                + "|" + source
+                + "|" + dimension
+                + "|" + targetKey
+                + "|" + x
+                + "|" + z;
+
         if (!SEEN_RESULTS.add(resultKey)) {
             return;
         }
 
         CompassToMap.LOGGER.info(
-                "Explorer's Compass found structure: structure={}, x={}, y={}, z={}, dimension={}",
-                structureKey,
+                "{} found target: target={}, x={}, y={}, z={}, dimension={}, color={}",
+                source,
+                targetKey,
                 x,
                 y,
                 z,
-                dimension
+                dimension,
+                color
         );
 
-        createJourneyMapWaypoint(player, prettyName, dimension, x, y, z);
-    }
-
-    private void createJourneyMapWaypoint(ServerPlayerEntity player, String name, String dimension, int x, int y, int z) {
-        String safeName = name.replace("\"", "'");
-        String playerName = player.getScoreboardName();
-
-        /*
-         * JourneyMap 1.16.5 exposes a server command as:
-         * /waypoint create "name" <dimension> <x> <y> <z> <color> <player> [announce]
-         *
-         * We run it without the slash because CommandManager expects the raw command text.
-         */
         String command = "waypoint create \"" + safeName + "\" "
                 + dimension + " "
                 + x + " " + y + " " + z + " "
-                + "aqua "
+                + color + " "
                 + playerName + " "
                 + "false";
 
@@ -128,8 +201,30 @@ public class CompassWatcher {
         }
     }
 
-    private String prettyStructureName(String structureKey) {
-        String name = structureKey;
+    private String getFirstStringTag(CompoundNBT tag, String... keys) {
+        for (String key : keys) {
+            if (tag.contains(key)) {
+                String value = tag.getString(key);
+
+                if (value != null && !value.isEmpty()) {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void logUnknownCompassTagOnce(ServerPlayerEntity player, String source, CompoundNBT tag) {
+        String key = player.getUniqueID() + "|" + source + "|" + tag.toString();
+
+        if (LOGGED_UNKNOWN_TAGS.add(key)) {
+            CompassToMap.LOGGER.info("{} found result but biome key was unknown. Full tag: {}", source, tag);
+        }
+    }
+
+    private String prettyNameFromKey(String key) {
+        String name = key;
 
         int colonIndex = name.indexOf(':');
         if (colonIndex >= 0 && colonIndex + 1 < name.length()) {
@@ -155,6 +250,6 @@ public class CompassWatcher {
             }
         }
 
-        return builder.length() == 0 ? structureKey : builder.toString();
+        return builder.length() == 0 ? key : builder.toString();
     }
 }
